@@ -246,7 +246,15 @@ function parametric_type_to_expr(t::Type)
     if t <: Vararg
         return Expr(:(...), t.parameters[1])
     end
-    return t.hasfreetypevars ? Expr(:curly, t.name.name, ((tv-> tv isa TypeVar ? tv.name : tv).(t.parameters))...) : t
+    if t.hasfreetypevars
+        params = map(t.parameters) do p
+            isa(p, TypeVar) ? p.name :
+            isa(p, DataType) && p.hasfreetypevars ? parametric_type_to_expr(p) : p
+        end
+        @show t.name
+        return Expr(:curly, scopename(t.name), params...)
+    end
+    return t
 end
 
 # Handle :llvmcall & :foreigncall (issue #28)
@@ -256,6 +264,9 @@ function build_compiled_call!(stmt, methname, fcall, typargs, code, idx, nargs, 
     delete_idx = Int[]
     if fcall == :ccall
         cfunc, RetType, ArgType = lookup_stmt(code.code, stmt.args[1]), stmt.args[2], stmt.args[3]
+        if RetType.hasfreetypevars
+            @show RetType parametric_type_to_expr(RetType)
+        end
         # The result of this is useful to have next to you when reading this code:
         # f(x, y) =  ccall(:jl_value_ptr, Ptr{Cvoid}, (Float32,Any), x, y)
         # @code_lowered f(2, 3)
@@ -313,6 +324,7 @@ function build_compiled_call!(stmt, methname, fcall, typargs, code, idx, nargs, 
         for sparam in sparams
             push!(wrapargs, :(::$TVal{$sparam}))
         end
+        @show wrapargs RetType
         if stmt.args[4] == :(:llvmcall)
             def = :(
                 function $methname($(wrapargs...)) where {$(sparams...)}
@@ -329,6 +341,7 @@ function build_compiled_call!(stmt, methname, fcall, typargs, code, idx, nargs, 
                     return $fcall($cfunc, $RetType, $ArgType, $(argnames...))
                 end)
         end
+        @show evalmod def
         f = Core.eval(evalmod, def)
         compiled_calls[cc_key] = f
     end

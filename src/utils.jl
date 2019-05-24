@@ -87,6 +87,14 @@ function scan_ssa_use!(used::BitSet, @nospecialize(stmt))
     end
 end
 
+function scopename(tn::TypeName)
+    modpath = Base.fullname(tn.module)
+    return Expr(:., _scopename(modpath...), QuoteNode(tn.name))
+end
+_scopename(sym) = sym
+_scopename(parent, child) = Expr(:., parent, QuoteNode(child))
+_scopename(parent, child, rest...) = Expr(:., parent, _scopename(child, rest...))
+
 ## Predicates
 
 is_goto_node(@nospecialize(node)) = isa(node, GotoNode) || isexpr(node, :gotoifnot)
